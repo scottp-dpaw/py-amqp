@@ -1779,21 +1779,27 @@ class Channel(AbstractChannel):
                 second for message to confirm.
 
         """
+        AMQP_LOGGER.debug(f"We're going to publish msg {msg} to exchange {exchange} with routing key {routing_key}")
         if not self.connection:
+            AMQP_LOGGER.debug(f"Shame the connection's dead")
             raise RecoverableConnectionError(
                 'basic_publish: connection closed')
 
+        AMQP_LOGGER.debug(f"Gettin' some capabilities")
         capabilities = self.connection. \
             client_properties.get('capabilities', {})
+        AMQP_LOGGER.debug(f"{capabilities}")
         if capabilities.get('connection.blocked', False):
             try:
                 # Check if an event was sent, such as the out of memory message
+                AMQP_LOGGER.debug(f"Let's drain the events, won't you?")
                 self.connection.drain_events(timeout=0)
             except socket.timeout:
                 pass
 
         try:
             with self.connection.transport.having_timeout(timeout):
+                AMQP_LOGGER.debug(f"Gonna try and send it for real with timeout {timeout}")
                 return self.send_method(
                     spec.Basic.Publish, argsig,
                     (0, exchange, routing_key, mandatory, immediate), msg
