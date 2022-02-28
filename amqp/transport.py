@@ -1,6 +1,7 @@
 """Transport implementation."""
 # Copyright (C) 2009 Barry Pederson <bp@barryp.org>
 
+import logging
 import errno
 import os
 import re
@@ -15,6 +16,7 @@ from .platform import KNOWN_TCP_OPTS, SOL_TCP
 from .utils import set_cloexec
 
 _UNAVAIL = {errno.EAGAIN, errno.EINTR, errno.ENOENT, errno.EWOULDBLOCK}
+AMQP_LOGGER = logging.getLogger('amqp')
 
 AMQP_PORT = 5672
 
@@ -147,12 +149,16 @@ class _AbstractTransport:
             yield self.sock
         else:
             sock = self.sock
+            AMQP_LOGGER.debug("Getting the old timeout")
             prev = sock.gettimeout()
             if prev != timeout:
+                AMQP_LOGGER.debug("Setting the new timeout")
                 sock.settimeout(timeout)
             try:
+                AMQP_LOGGER.debug("Trying to yield the socket")
                 yield self.sock
             except SSLError as exc:
+                AMQP_LOGGER.exception("Oh no, an SSL didn't work")
                 if 'timed out' in str(exc):
                     # http://bugs.python.org/issue10272
                     raise socket.timeout()
@@ -161,11 +167,13 @@ class _AbstractTransport:
                     raise socket.timeout()
                 raise
             except OSError as exc:
+                AMQP_LOGGER.exception("Oh no, an socket didn't work")
                 if exc.errno == errno.EWOULDBLOCK:
                     raise socket.timeout()
                 raise
             finally:
                 if timeout != prev:
+                    AMQP_LOGGER.debug("Setting the old timeout back")
                     sock.settimeout(prev)
 
     def _connect(self, host, port, timeout):
@@ -323,31 +331,40 @@ class _AbstractTransport:
         read = self._read
         read_frame_buffer = EMPTY_BUFFER
         try:
+            AMQP_LOGGER.exception("Readin' a header")
             frame_header = read(7, True)
             read_frame_buffer += frame_header
             frame_type, channel, size = unpack('>BHI', frame_header)
             # >I is an unsigned int, but the argument to sock.recv is signed,
             # so we know the size can be at most 2 * SIGNED_INT_MAX
             if size > SIGNED_INT_MAX:
+                AMQP_LOGGER.debug(f"Reading part1 {SIGNED_INT_MAX} bytes")
                 part1 = read(SIGNED_INT_MAX)
 
                 try:
+                    AMQP_LOGGER.debug(f"Reading part2 {size - SIGNED_INT_MAX} bytes")
                     part2 = read(size - SIGNED_INT_MAX)
                 except (socket.timeout, OSError, SSLError):
+                    AMQP_LOGGER.exception("Merde! Connection died mid-load")
                     # In case this read times out, we need to make sure to not
                     # lose part1 when we retry the read
                     read_frame_buffer += part1
+                    AMQP_LOGGER.debug(f"Most we got was: {read_frame_buffer}")
                     raise
 
                 payload = b''.join([part1, part2])
             else:
+                AMQP_LOGGER.debug(f"Reading {size} bytes")
                 payload = read(size)
             read_frame_buffer += payload
+            AMQP_LOGGER.debug(f"Buffer: {read_frame_buffer}")
             frame_end = ord(read(1))
         except socket.timeout:
+            AMQP_LOGGER.exception("Socket did a whoopsie while reading frame")
             self._read_buffer = read_frame_buffer + self._read_buffer
             raise
         except (OSError, SSLError) as exc:
+            AMQP_LOGGER.exception("SSL did a whoopsie while reading frame")
             if (
                 isinstance(exc, socket.error) and os.name == 'nt'
                 and exc.errno == errno.EWOULDBLOCK  # noqa

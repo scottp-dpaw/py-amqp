@@ -521,12 +521,17 @@ class Connection(AbstractChannel):
         raise NotImplementedError('Use AMQP heartbeats')
 
     def drain_events(self, timeout=None):
+        AMQP_LOGGER.debug("I'm gonna drain it I tells ya!")
         # read until message is ready
         while not self.blocking_read(timeout):
             pass
+        AMQP_LOGGER.debug("I warned ya! I warned ya this was getting drained!")
+
 
     def blocking_read(self, timeout=None):
+        AMQP_LOGGER.debug(f"Grab that damn transport {self.transport} ({type(self.transport)}) - {self.transport.__dict__}")
         with self.transport.having_timeout(timeout):
+            AMQP_LOGGER.debug("Let's read a frame from the transport, just for kicks")
             frame = self.transport.read_frame()
         return self.on_inbound_frame(frame)
 
