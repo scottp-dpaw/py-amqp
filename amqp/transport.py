@@ -335,6 +335,10 @@ class _AbstractTransport:
             frame_header = read(7, True)
             read_frame_buffer += frame_header
             frame_type, channel, size = unpack('>BHI', frame_header)
+            AMQP_LOGGER.debug(f"Now!!! Do it!!!!!")
+            import time; time.sleep(2)
+            AMQP_LOGGER.debug(f"Too slow buddy, continuing")
+
             # >I is an unsigned int, but the argument to sock.recv is signed,
             # so we know the size can be at most 2 * SIGNED_INT_MAX
             if size > SIGNED_INT_MAX:
@@ -612,7 +616,6 @@ class SSLTransport(_AbstractTransport):
         # According to SSL_read(3), it can at most return 16kb of data.
         # Thus, we use an internal read buffer like TCPTransport._read
         # to get the exact number of bytes wanted.
-        AMQP_LOGGER.debug(f"SSL_READ({n})")
         recv = self._quick_recv
         rbuf = self._read_buffer
         try:
@@ -634,7 +637,6 @@ class SSLTransport(_AbstractTransport):
             self._read_buffer = rbuf
             raise
         result, self._read_buffer = rbuf[:n], rbuf[n:]
-        AMQP_LOGGER.debug(f"SSL_READ({n}) = {result.hex()}")
         return result
 
     def _write(self, s):
@@ -663,9 +665,13 @@ class TCPTransport(_AbstractTransport):
     def _setup_transport(self):
         # Setup to _write() directly to the socket, and
         # do our own buffered reads.
-        self._write = self.sock.sendall
         self._read_buffer = EMPTY_BUFFER
         self._quick_recv = self.sock.recv
+    
+    def _write(self, s):
+        AMQP_LOGGER.debug(f"TCP_WRITE({len(s)}, {s.hex()})") 
+        result = self.sock.sendall(s)
+        return result
 
     def _read(self, n, initial=False, _errnos=(errno.EAGAIN, errno.EINTR)):
         """Read exactly n bytes from the socket."""
